@@ -1,0 +1,9 @@
+# Installed dependencies (reproduce with: npm ci)
+node_modules/
+
+# Timestamped test runs are generated artifacts; a curated set lives in sample-report/
+reports/
+
+# Temporary logs / outputs
+*.log
+*.tmp

@@ -1,0 +1,10 @@
+{
+  "name": "rm-electron-ui-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local, Zoom-free UI + pipeline + latency harness for the RM Electron app",
+  "scripts": { "test": "node run.cjs" },
+  "dependencies": {
+    "playwright-core": "1.56.0"
+  }
+}

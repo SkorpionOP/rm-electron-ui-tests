@@ -1,0 +1,231 @@
+{
+  "when": "2026-11-23T10:30:02.732Z",
+  "pass": 28,
+  "fail": 0,
+  "results": [
+    {
+      "section": "A. Electron UI",
+      "name": "Application startup — a window opened",
+      "expected": "a BrowserWindow",
+      "actual": "1 window(s)",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Overlay initialization — window visible with title",
+      "expected": "visible, titled",
+      "actual": "visible=true title=RM",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Overlay initialization — default size present",
+      "expected": "> 0 w/h",
+      "actual": "600x580",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Window positioning",
+      "expected": "x≈220,y≈130",
+      "actual": "x=220,y=130",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Window resizing",
+      "expected": "680x520",
+      "actual": "680x520",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Saved-bounds persistence (save + read back)",
+      "expected": "640x480@300,200",
+      "actual": "640x480@300,200",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Saved-bounds written to userData state file",
+      "expected": "stealth_window_state.json exists",
+      "actual": "exists",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Keyboard shortcuts registered with OS",
+      "expected": "both registered",
+      "actual": "toggle=true answer=true",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Minimize",
+      "expected": "isMinimized true",
+      "actual": "min=true",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Restore",
+      "expected": "isMinimized false, visible",
+      "actual": "min=false visible=true",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Tray-style hide/show cycle (window hides to tray and restores)",
+      "expected": "hidden then shown",
+      "actual": "hidden=true shown=true",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Long answer rendering is scrollable",
+      "expected": "scrollHeight > clientHeight",
+      "actual": "3856 > 160",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Long answer can scroll to bottom",
+      "expected": "scrollTop > 0",
+      "actual": "scrollTop > 0",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "B. Pipeline",
+      "name": "Backend streaming — tokens received",
+      "expected": ">0 chunks",
+      "actual": "23 chunks",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "B. Pipeline",
+      "name": "Backend streaming — completed (stream-end)",
+      "expected": "ret=end, total_ms set",
+      "actual": "ret=end, total_ms=410",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "B. Pipeline",
+      "name": "Completed answer assembled non-empty",
+      "expected": "non-empty text",
+      "actual": "149 chars",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "B. Pipeline",
+      "name": "Long answer streamed fully",
+      "expected": "≥400 chunks",
+      "actual": "400 chunks",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "B. Pipeline",
+      "name": "Multiple questions answered in sequence",
+      "expected": "3 completed",
+      "actual": "3 completed",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "B. Pipeline",
+      "name": "Duplicate-question guard present in renderer API",
+      "expected": "queryBackendStream exposed",
+      "actual": "exposed=true",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "B. Pipeline",
+      "name": "Partial answer (dropped mid-stream) resolves, no hang",
+      "expected": "ends or errors, not timeout",
+      "actual": "ret=error",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "B. Pipeline",
+      "name": "Backend failure (HTTP 500) surfaces error",
+      "expected": "error set, no chunks",
+      "actual": "error=\"Simulated backend failure\", chunks=0",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "B. Pipeline",
+      "name": "Empty 200 response does not hang",
+      "expected": "ends, empty text",
+      "actual": "ret=end, len=0",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "B. Pipeline",
+      "name": "Malformed stream handled without hang",
+      "expected": "ends or errors",
+      "actual": "ret=end",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "B. Pipeline",
+      "name": "Recovery — normal request succeeds after failures",
+      "expected": "completes again",
+      "actual": "ret=end, chunks=23",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "C. Latency",
+      "name": "TTFT latency over 12 runs (app-measured ttft_ms)",
+      "expected": "median reported",
+      "actual": "median 46ms p95 47ms max 47ms (n=12)",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "C. Latency",
+      "name": "Total answer latency over 12 runs (app-measured total_ms)",
+      "expected": "median reported",
+      "actual": "median 401ms p95 403ms max 404ms (n=12)",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Application cleanup — process exits on close",
+      "expected": "process gone",
+      "actual": "exited",
+      "status": "PASS",
+      "logs": ""
+    },
+    {
+      "section": "A. Electron UI",
+      "name": "Restart & recovery — relaunches and restores a window",
+      "expected": "window with bounds",
+      "actual": "600x580",
+      "status": "PASS",
+      "logs": ""
+    }
+  ]
+}
