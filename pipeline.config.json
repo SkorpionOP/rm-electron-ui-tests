@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "RM Electron Test Pipeline Configuration",
+  "version": "1.0.0",
+  "liveSession": {
+    "directLiveSession": true,
+    "autoStartMeeting": true,
+    "verifyLiveStats": true,
+    "autoStartTranscription": true,
+    "bypassInitialScreen": true,
+    "testAudioLoopback": true,
+    "timeoutSeconds": 30,
+    "description": "Directly opens meeting apps, starts a meeting, mounts RM copilot, and verifies live performance stats"
+  },
+  "apps": [
+    {
+      "id": "zoom",
+      "name": "Zoom Workplace",
+      "processName": "Zoom.exe",
+      "startMeetingCommand": "start zoommtg://zoom.us/start?action=start",
+      "openAppBeforeTest": true,
+      "autoStartMeeting": true,
+      "closeAppAfterTest": false,
+      "enabled": true,
+      "description": "Standard meeting environment with screen share and audio active"
+    },
+    {
+      "id": "teams",
+      "name": "Microsoft Teams",
+      "processName": "ms-teams.exe",
+      "startMeetingCommand": "start msteams:/l/call/0/0",
+      "openAppBeforeTest": true,
+      "autoStartMeeting": true,
+      "closeAppAfterTest": false,
+      "enabled": true,
+      "description": "Enterprise Teams meeting and calling environment"
+    },
+    {
+      "id": "chrome-meet",
+      "name": "Google Chrome (Meet)",
+      "processName": "chrome.exe",
+      "startMeetingCommand": "start chrome.exe \"https://meet.google.com/new\" --use-fake-ui-for-media-stream --use-fake-device-for-media-stream --no-first-run",
+      "openAppBeforeTest": true,
+      "autoStartMeeting": true,
+      "closeAppAfterTest": false,
+      "enabled": true,
+      "description": "Browser-based WebRTC meeting environment with auto-joined audio"
+    },
+    {
+      "id": "slack",
+      "name": "Slack Huddle",
+      "processName": "slack.exe",
+      "startMeetingCommand": "start slack://call",
+      "openAppBeforeTest": true,
+      "autoStartMeeting": true,
+      "closeAppAfterTest": false,
+      "enabled": true,
+      "description": "Team huddle and audio stream coexistence"
+    },
+    {
+      "id": "desktop-clean",
+      "name": "Clean Desktop Baseline",
+      "processName": "explorer.exe",
+      "startMeetingCommand": "",
+      "openAppBeforeTest": false,
+      "autoStartMeeting": false,
+      "closeAppAfterTest": false,
+      "enabled": true,
+      "description": "Baseline desktop execution with no third-party conferencing apps"
+    }
+  ],
+  "schedule": {
+    "enabled": true,
+    "frequency": "daily",
+    "dailyAt": "09:00",
+    "cronExpression": "0 9 * * *",
+    "intervalMinutes": 1440,
+    "runOnStartup": true,
+    "description": "Daily automated pipeline check directly across all mentioned apps"
+  },
+  "backend": {
+    "url": "http://127.0.0.1:48888/api/test-results",
+    "endpointPath": "/api/test-results",
+    "timeoutMs": 10000,
+    "retryCount": 3,
+    "retryDelayMs": 1500,
+    "authToken": ""
+  },
+  "notifications": {
+    "adminPopup": {
+      "enabled": true,
+      "onFailureOnly": true,
+      "timeoutSeconds": 0,
+      "topMost": true,
+      "title": "⚠️ RM Pipeline Daily Test Failure Alert"
+    },
+    "windowsToast": {
+      "enabled": true
+    }
+  },
+  "reporting": {
+    "outputDir": "reports",
+    "saveScreenshots": true,
+    "keepLastNRuns": 30
+  }
+}

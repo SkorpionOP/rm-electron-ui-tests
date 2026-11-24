@@ -3,7 +3,16 @@
   "private": true,
   "version": "1.0.0",
   "description": "Local, Zoom-free UI + pipeline + latency harness for the RM Electron app",
-  "scripts": { "test": "node run.cjs" },
+  "scripts": {
+    "test": "node run.cjs",
+    "pipeline": "node pipeline-runner.cjs",
+    "pipeline:daily": "node pipeline-runner.cjs --daily",
+    "pipeline:daily-now": "node pipeline-runner.cjs --daily --run-now",
+    "pipeline:schedule": "node pipeline-runner.cjs --schedule",
+    "pipeline:simulate": "node pipeline-runner.cjs --simulate",
+    "pipeline:alert-test": "node admin-alert.cjs",
+    "mock-backend": "node mock-backend.cjs"
+  },
   "dependencies": {
     "playwright-core": "1.56.0"
   }
