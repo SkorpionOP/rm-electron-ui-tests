@@ -1,11 +1,9 @@
-// meeting-controller.cjs: Universal Meeting Automator and Live Performance Metrics Engine
+// meeting-controller.cjs: detects and launches target meeting apps for the pipeline
 //
 // Responsibilities:
 // 1. Checks if target meeting apps are installed on Windows
 // 2. Directly opens the meeting application and starts an active meeting room
-// 3. Verifies window and audio device initialization
-// 4. Measures real performance stats (TTFT, total latency, tokens/sec, audio format)
-// 5. Cleans up meeting sessions
+// (Measurements are taken by run.cjs, not here.)
 
 const { exec, execSync } = require('child_process');
 const fs = require('fs');
@@ -16,7 +14,7 @@ const os = require('os');
  * Checks if a specific executable exists on Windows.
  */
 function isAppInstalled(executableName) {
-  const userProfile = process.env.USERPROFILE || 'C:\\Users\\omkar';
+  const userProfile = process.env.USERPROFILE || os.homedir();
   const localAppData = process.env.LOCALAPPDATA || path.join(userProfile, 'AppData', 'Local');
   const appData = process.env.APPDATA || path.join(userProfile, 'AppData', 'Roaming');
   const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
@@ -150,75 +148,12 @@ async function startMeetingForApp(appInfo = {}) {
     }
   }
 
-  /**
-   * Measure live session performance stats while meeting is actively running.
-   */
-    async function measureMeetingLiveStats(meetingInfo) {
-      console.log(`[MEETING-CONTROLLER] 📊 Measuring live performance stats for active meeting...`);
 
-      const stats = {
-        meetingStatus: meetingInfo.meetingStarted ? 'ACTIVE' : 'FAILED',
-        meetingRoomType: 'instant-room',
-        audioLoopback: {
-          status: meetingInfo.meetingStarted ? 'STREAMING' : 'OFFLINE',
-          device: meetingInfo.audioProfile || 'System Desktop Audio',
-          format: 'Linear16 PCM',
-          sampleRate: 16000,
-          channels: 1,
-          bitrateKbps: 256,
-          rmsVolumeLevel: 0.78,
-      verified: meetingInfo.meetingStarted
-        },
-        latency: {
-          ttftMsMedian: 38,
-          ttftMsP95: 42,
-          ttftMsMax: 48,
-          totalLatencyMedianMs: 840,
-          totalLatencyP95Ms: 910,
-          tokensPerSecond: 48.5,
-          thresholdPassing: true
-        },
-        transcription: {
-          engine: 'Deepgram nova-3',
-          endpointingMs: 10,
-          smartFormat: true,
-          interimResults: true,
-          isFinalDetected: true
-        },
-        overlayCoexistence: {
-          alwaysOnTop: true,
-          visible: true,
-          clampedToScreen: true,
-          bounds: { x: 220, y: 130, width: 680, height: 520 },
-          stateSaved: true,
-          hotkeysRegistered: {
-            toggle: 'CommandOrControl+Shift+J',
-            answer: 'CommandOrControl+Shift+K',
-            responsive: true
-          }
-        },
-        memoryAndCpu: {
-          electronRssMb: 114,
-          cpuPercent: 2.1,
-          leakDetected: false
-        }
-      };
+// Note: this module only launches the meeting app. Performance figures come from the
+// run.cjs harness (real measurements); nothing here reports synthetic numbers.
 
-      return stats;
-    }
-
-    /**
-     * Graceful meeting session teardown
-     */
-    async function closeMeeting(meetingInfo) {
-      console.log(`[MEETING-CONTROLLER] 🛑 Cleaning up meeting session for: ${meetingInfo.appName}`);
-      return { closed: true };
-    }
-
-    module.exports = {
-      MEETING_SCHEMES,
-      isAppInstalled,
-      startMeetingForApp,
-      measureMeetingLiveStats,
-      closeMeeting
-    };
+module.exports = {
+  MEETING_SCHEMES,
+  isAppInstalled,
+  startMeetingForApp
+};

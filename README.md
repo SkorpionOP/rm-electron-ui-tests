@@ -57,10 +57,10 @@ powershell -ExecutionPolicy Bypass -File .\setup-schedule.ps1 -Action register -
 node pipeline-runner.cjs --daily --daily-at "09:00"
 ```
 
-- Target apps are configured in [pipeline.config.json](file:///c:/Users/omkar/Downloads/rm-electron-ui-tests/pipeline.config.json).
+- Target apps are configured in [pipeline.config.json](pipeline.config.json).
 - Sends full test results in JSON format to your backend at `POST /api/test-results`.
 - If failures occur, immediately triggers an on-screen **Admin Popup Alert** (`MessageBox` TopMost + Windows notification).
-- Detailed documentation: [PIPELINE.md](file:///c:/Users/omkar/Downloads/rm-electron-ui-tests/PIPELINE.md).
+- Detailed documentation: [PIPELINE.md](PIPELINE.md).
 
 ## Files
 - `pipeline-runner.cjs` — automated pipeline orchestrator for mentioned apps, scheduling, JSON backend sync & admin alerts.
@@ -71,7 +71,7 @@ node pipeline-runner.cjs --daily --daily-at "09:00"
 - `mock-backend.cjs` — local stand-in for `/api/answer/stream` and `/api/test-results` results ingestion.
 - `TEST-STRATEGY.md` — architecture, integration seams, strategy, and known limitations.
 - `PIPELINE.md` — full pipeline design and configuration guide.
-- `sample-report/` — a representative passing run (28/28).
+- `sample-report/` — a representative passing harness run (from an earlier 28-check version; current harness runs 29).
 
 ## Notes
 - Make sure the RM app is **not already running** when you start a run (single-instance lock).

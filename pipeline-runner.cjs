@@ -14,7 +14,11 @@ const path = require('path');
 const os = require('os');
 const { spawn, execSync } = require('child_process');
 const { sendAdminPopup } = require('./admin-alert.cjs');
-const { startMeetingForApp, measureMeetingLiveStats, closeMeeting } = require('./meeting-controller.cjs');
+const { startMeetingForApp } = require('./meeting-controller.cjs');
+const { runHarness } = require('./run.cjs');
+
+// Port for the harness's own mock backend, kept apart from the results backend (48888).
+const HARNESS_MOCK_PORT = Number(process.env.RM_HARNESS_MOCK_PORT) || 48889;
 
 // Load pipeline configuration
 const CONFIG_FILE = path.join(__dirname, 'pipeline.config.json');
@@ -252,18 +256,21 @@ function generateHtmlReport(jobData, outDir) {
     ).join('');
 
     const stats = app.stats || {};
-    const audio = stats.audioLoopback || {};
-    const latency = stats.latency || {};
+    const lat = stats.latency;
+    const win = stats.window;
+    const proc = stats.process;
+    const v = (x, unit = '') => (x === null || x === undefined ? 'not measured' : `${x}${unit}`);
 
     return `
       <div class="card">
         <h3><span class="badge ${statusClass}">${app.status}</span> ${esc(app.name)}</h3>
-        <p><b>Target Process:</b> <code>${esc(app.processName || 'N/A')}</code> | <b>Meeting Room:</b> ${app.meetingStarted ? 'Active Instant Meeting' : 'Baseline'}</p>
+        <p><b>Target Process:</b> <code>${esc(app.processName || 'N/A')}</code> | <b>Meeting app launched:</b> ${app.meetingStarted ? 'yes' : 'no'}</p>
         <div style="background:#f1f5f9;padding:10px 14px;border-radius:6px;margin:10px 0;font-size:12px;line-height:1.6">
-          <b>📊 Verified Live Meeting Stats:</b><br>
-          • <b>Audio Loopback:</b> ${esc(audio.format || 'Linear16')} @ ${audio.sampleRate || 16000}Hz (${audio.status || 'Active'})<br>
-          • <b>TTFT Latency:</b> ${latency.ttftMsMedian || app.ttftMedian || 'N/A'}ms (P95: ${latency.ttftMsP95 || 'N/A'}ms) | <b>Speed:</b> ${latency.tokensPerSecond || 48.5} tokens/s<br>
-          • <b>Total Answer Time:</b> ${latency.totalLatencyMedianMs || app.totalLatencyMedian || 'N/A'}ms | <b>Overlay:</b> alwaysOnTop=true, clampedToScreen=true
+          <b>📊 Measured by harness</b> (against ${esc((lat && lat.backend) || 'local mock')} backend, ${v(lat && lat.runs)} runs):<br>
+          • <b>TTFT:</b> median ${v(lat && lat.ttftMs.median, 'ms')} · p95 ${v(lat && lat.ttftMs.p95, 'ms')} · max ${v(lat && lat.ttftMs.max, 'ms')}<br>
+          • <b>Total answer time:</b> median ${v(lat && lat.totalMs.median, 'ms')} · p95 ${v(lat && lat.totalMs.p95, 'ms')} | <b>Stream rate:</b> ${v(lat && lat.chunksPerSecond.median, ' chunks/s')}<br>
+          • <b>Overlay:</b> visible=${v(win && win.visible)} alwaysOnTop=${v(win && win.alwaysOnTop)} | <b>Memory:</b> ${v(proc && proc.workingSetMb, ' MB')} across ${v(proc && proc.processCount)} processes, CPU ${v(proc && proc.cpuPercent, '%')}<br>
+          • <b>Audio loopback / transcription:</b> not measured by this pipeline
         </div>
         <p><b>Tests Passed:</b> ${app.passed}/${app.tests.length}</p>
         <table>
@@ -425,9 +432,6 @@ async function runTestsForApp(appInfo, options = {}) {
   console.log(`  Real RM Electron Window: ${rmApp.success ? 'OPEN ON DESKTOP (PID ' + rmApp.pid + ')' : 'FAILED'}`);
   console.log(`======================================================`);
 
-  // 3. Measure live meeting session performance stats
-  const liveStats = await measureMeetingLiveStats(meetingInfo);
-
   const tests = [];
   const addTest = (name, expected, actual, pass, logs = '') => {
     tests.push({
@@ -462,94 +466,56 @@ async function runTestsForApp(appInfo, options = {}) {
   addTest(
     `Physically open RM Electron App window on desktop`,
     'RM window visible on desktop, stealth controller port 48999 active',
-    rmApp.success ? `RM window open on screen (PID ${rmApp.pid}, port 48999 active)` : (rmApp.error || 'Failed to open window'),
-    rmApp.success === true
+    rmApp.success ? `process started (PID ${rmApp.pid}), port 48999 ${rmApp.controllerReady ? 'responding' : 'not responding after 6s'}` : (rmApp.error || 'Failed to open window'),
+    rmApp.success === true && rmApp.controllerReady === true
   );
 
-  // Check 3: Direct Live Session entry on RM startup
-  addTest(
-    `RM Copilot directly enters Live Session on startup`,
-    'bypasses home screen and mounts live transcription overlay',
-    'RM_DIRECT_LIVE_SESSION=1 -> live session ACTIVE',
-    rmApp.success === true
-  );
-
-  // Check 3: Live meeting audio loopback stream verified
-  addTest(
-    `Live meeting audio loopback stream verified (${liveStats.audioLoopback.format} @ ${liveStats.audioLoopback.sampleRate}Hz)`,
-    'audio loopback streaming 16kHz mono Linear16 PCM',
-    `status=${liveStats.audioLoopback.status}, rmsVolume=${liveStats.audioLoopback.rmsVolumeLevel}`,
-    liveStats.audioLoopback.status === 'STREAMING'
-  );
-
-  // Check 4: Live meeting latency TTFT verified against SLA
-  addTest(
-    `Live meeting TTFT latency performance check (< 400ms SLA)`,
-    'ttftMs < 400ms',
-    `median=${liveStats.latency.ttftMsMedian}ms (P95=${liveStats.latency.ttftMsP95}ms)`,
-    liveStats.latency.ttftMsMedian < 400
-  );
-
-  // Check 5: Live AI token streaming speed in meeting
-  addTest(
-    `Live AI answer token streaming speed (> 20 tokens/sec)`,
-    'tokensPerSec > 20',
-    `speed=${liveStats.latency.tokensPerSecond} tokens/s`,
-    liveStats.latency.tokensPerSecond > 20
-  );
-
-  // Check 6: Overlay pinned and positioned directly over meeting window
-  addTest(
-    `Live overlay visibility & always-on-top over ${appInfo.name} window`,
-    'overlay stays visible and always-on-top over meeting window',
-    `alwaysOnTop=${liveStats.overlayCoexistence.alwaysOnTop} visible=${liveStats.overlayCoexistence.visible}`,
-    liveStats.overlayCoexistence.alwaysOnTop && liveStats.overlayCoexistence.visible
-  );
-
-  // Check 7: Global meeting shortcuts response
-  addTest(
-    `Global shortcuts response during ${appInfo.name} meeting`,
-    'toggle (Ctrl+Shift+J) and answer (Ctrl+Shift+K) hotkeys responsive',
-    `toggle=${liveStats.overlayCoexistence.hotkeysRegistered.responsive} answer=${liveStats.overlayCoexistence.hotkeysRegistered.responsive}`,
-    liveStats.overlayCoexistence.hotkeysRegistered.responsive
-  );
-
-  // Check 8: Real-time question detection & answer rendering in meeting
-  addTest(
-    `Real-time question detection & streaming DOM rendering under ${appInfo.name}`,
-    'stream tokens assembled and rendered into scrolling meeting panel',
-    `completed, totalLatency=${liveStats.latency.totalLatencyMedianMs}ms`,
-    true
-  );
-
-  // Check 9: Window bounds persistence
-  addTest(
-    `Meeting window bounds stability in stealth_window_state.json`,
-    'bounds preserved',
-    `x=${liveStats.overlayCoexistence.bounds.x}, y=${liveStats.overlayCoexistence.bounds.y}, w=${liveStats.overlayCoexistence.bounds.width}`,
-    liveStats.overlayCoexistence.stateSaved
-  );
-
-  // Check 11: Clean meeting session teardown & close RM window
+  // Close the desktop RM instance and confirm the process actually exits, so the harness
+  // below can start its own instance (port 48999 and the window are free again).
+  let rmExited = false;
   if (rmApp.process) {
-    try { rmApp.process.kill(); } catch { }
+    rmExited = await new Promise((resolve) => {
+      if (rmApp.process.exitCode !== null) return resolve(true);
+      const t = setTimeout(() => resolve(false), 5000);
+      rmApp.process.once('exit', () => { clearTimeout(t); resolve(true); });
+      try { rmApp.process.kill(); } catch { clearTimeout(t); resolve(false); }
+    });
   }
-  const closeRes = await closeMeeting(meetingInfo);
   addTest(
-    `Meeting session teardown and RM window cleanup`,
-    'meeting session closed and RM window process exited cleanly',
-    `rmExited=true, meetingClosed=${closeRes.closed}`,
-    closeRes.closed === true
+    `RM desktop window cleanup`,
+    'RM process exits after kill',
+    rmApp.process ? (rmExited ? 'exited' : 'still running after 5s') : 'never launched',
+    rmExited
   );
+
+  // 3. Run the real UI / pipeline / latency harness while the target app is running beside it.
+  //    Every check and number below comes from that run; nothing is synthesized.
+  console.log(`[PIPELINE] ▶ Running UI/pipeline/latency harness alongside ${appInfo.name}...`);
+  let harness = null;
+  try {
+    harness = await runHarness({
+      mockPort: HARNESS_MOCK_PORT,
+      outDir: outDir ? path.join(outDir, `harness-${appInfo.id}`) : undefined
+    });
+  } catch (e) {
+    addTest('Harness started', 'harness launches the RM app', String((e && e.message) || e), false, String((e && e.stack) || e));
+  }
+  if (harness) {
+    for (const r of harness.results) {
+      tests.push({ ...r, section: `${appInfo.name} · ${r.section}` });
+      console.log(`  [${r.status}] ${r.name}`);
+    }
+  }
+  const stats = harness ? harness.metrics : { latency: null, window: null, process: null };
 
   // If force failure or simulated error requested:
   if (options.forceFail) {
     addTest(
-      `Overlay window clamping under ${appInfo.name} full screen meeting`,
-      'clamped inside screen resolution',
-      'out of screen bounds x=2400',
+      `Forced failure (--force-alert) under ${appInfo.name}`,
+      'pass',
+      'forced failure to exercise admin alert path',
       false,
-      'Simulated boundary violation under target app full screen'
+      'Synthetic failure requested via --force-alert; not a real test result'
     );
   }
 
@@ -562,13 +528,13 @@ async function runTestsForApp(appInfo, options = {}) {
     processName: appInfo.processName,
     processRunning: running,
     meetingStarted: meetingInfo.meetingStarted,
-    meetingRoomType: liveStats.meetingRoomType,
     status: failCount === 0 ? 'PASS' : 'FAIL',
     passed: passCount,
     failed: failCount,
-    ttftMedian: liveStats.latency.ttftMsMedian,
-    totalLatencyMedian: liveStats.latency.totalLatencyMedianMs,
-    stats: liveStats,
+    ttftMedian: stats.latency ? stats.latency.ttftMs.median : null,
+    totalLatencyMedian: stats.latency ? stats.latency.totalMs.median : null,
+    stats,
+    harnessReport: harness ? path.join(harness.outDir, 'report.html') : null,
     tests
   };
 }

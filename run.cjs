@@ -1,4 +1,5 @@
 // RM Electron UI + pipeline + latency harness (Zoom-free, concealment-free).
+delete process.env.ELECTRON_RUN_AS_NODE;
 //
 //   node run.cjs
 //
@@ -27,34 +28,27 @@ function findAppDir() {
   }
   return path.resolve(__dirname, '..', '..');
 }
-const APP_DIR = findAppDir();
-let ELECTRON_BIN;
-try {
-  ELECTRON_BIN = require(path.join(APP_DIR, 'node_modules', 'electron'));
-} catch {
-  console.error(`Cannot find the RM app's Electron at ${path.join(APP_DIR, 'node_modules', 'electron')}.\n` +
-    'Set RM_APP_DIR to your Sutra-AI-APP checkout (which must have run `npm install`). Example:\n' +
-    '  RM_APP_DIR=/path/to/Sutra-AI-APP node run.cjs');
-  process.exit(2);
-}
-const OUT = path.join(__dirname, 'reports', new Date().toISOString().replace(/[:.]/g, '-'));
-const SHOTS = path.join(OUT, 'screenshots');
-const MOCK_PORT = 48888;
-
-const results = [];
-let currentSection = 'init';
-function record(name, expected, actual, pass, logs = '') {
-  results.push({ section: currentSection, name, expected: String(expected), actual: String(actual), status: pass ? 'PASS' : 'FAIL', logs });
-  const tag = pass ? 'PASS' : 'FAIL';
-  console.log(`  [${tag}] ${name}${pass ? '' : `  (expected ${expected}, got ${actual})`}`);
+function resolveElectron(appDir) {
+  try {
+    return require(path.join(appDir, 'node_modules', 'electron'));
+  } catch {
+    throw new Error(`Cannot find the RM app's Electron at ${path.join(appDir, 'node_modules', 'electron')}. ` +
+      'Set RM_APP_DIR to your Sutra-AI-APP checkout (which must have run `npm install`).');
+  }
 }
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const stat = (arr) => {
+  if (!arr.length) return { median: null, p95: null, max: null, n: 0 };
+  const s = [...arr].sort((a, b) => a - b);
+  const q = (p) => s[Math.min(s.length - 1, Math.floor(p * (s.length - 1)))];
+  return { median: q(0.5), p95: q(0.95), max: s[s.length - 1], n: s.length };
+};
 
-async function waitMock() {
+async function waitMock(port) {
   return new Promise((resolve, reject) => {
     const p = spawn(process.execPath, [path.join(__dirname, 'mock-backend.cjs')],
-      { env: { ...process.env, MOCK_PORT: String(MOCK_PORT) }, stdio: ['ignore', 'pipe', 'inherit'] });
+      { env: { ...process.env, MOCK_PORT: String(port) }, stdio: ['ignore', 'pipe', 'inherit'] });
     const to = setTimeout(() => reject(new Error('mock backend did not start')), 8000);
     p.stdout.on('data', (d) => { if (d.toString().includes('MOCK_READY')) { clearTimeout(to); resolve(p); } });
     p.on('exit', (c) => { if (c) reject(new Error('mock backend exited ' + c)); });
@@ -80,11 +74,29 @@ async function runStream(page, scenario, { token = 'test-token' } = {}) {
   }), { scenario, token });
 }
 
-async function main() {
+// Runs strategies A/B/C once against the real app and returns everything it measured.
+// Test failures are recorded, not thrown; it throws only if the harness cannot start at all.
+async function runHarness(opts = {}) {
+  const APP_DIR = opts.appDir || findAppDir();
+  const ELECTRON_BIN = resolveElectron(APP_DIR);
+  const MOCK_PORT = opts.mockPort || 48888;
+  const OUT = opts.outDir || path.join(__dirname, 'reports', new Date().toISOString().replace(/[:.]/g, '-'));
+  const SHOTS = path.join(OUT, 'screenshots');
+
+  const results = [];
+  // Raw measurements; null means "not measured". Never back-filled with defaults.
+  const metrics = { latency: null, window: null, process: null };
+  let currentSection = 'init';
+  function record(name, expected, actual, pass, logs = '') {
+    results.push({ section: currentSection, name, expected: String(expected), actual: String(actual), status: pass ? 'PASS' : 'FAIL', logs });
+    const tag = pass ? 'PASS' : 'FAIL';
+    console.log(`  [${tag}] ${name}${pass ? '' : `  (expected ${expected}, got ${actual})`}`);
+  }
+
   fs.mkdirSync(SHOTS, { recursive: true });
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rm-uitest-'));
   console.log('Starting mock backend...');
-  const mock = await waitMock();
+  const mock = await waitMock(MOCK_PORT);
 
   console.log('Launching Electron (isolated user-data-dir, RM_TEST_MODE=1, RM_DIRECT_LIVE_SESSION=1)...');
   const app = await electron.launch({
@@ -112,18 +124,23 @@ async function main() {
       // Trigger live session start button if on home screen
       const startBtn = document.querySelector('#start-session, .start-session, button[data-action="start"], .live-session-btn');
       if (startBtn) startBtn.click();
-      if (window.electronAPI && typeof window.electronAPI.startTranscription === 'function') {
-        try { window.electronAPI.startTranscription(); } catch { }
+      const hasApi = !!(window.electronAPI && typeof window.electronAPI.startTranscription === 'function');
+      let started = false, error = null;
+      if (hasApi) {
+        try { await window.electronAPI.startTranscription(); started = true; } catch (e) { error = String((e && e.message) || e); }
       }
-      return true;
+      return { startBtn: !!startBtn, hasApi, started, error };
     });
-    record('Direct Live Session — bypasses home & enters live session directly', 'live session active', 'live session active', directLiveReady);
+    record('Live session start — startTranscription IPC callable', 'exposed and invoked without throwing',
+      `startButton=${directLiveReady.startBtn} api=${directLiveReady.hasApi} started=${directLiveReady.started}${directLiveReady.error ? ' error=' + directLiveReady.error : ''}`,
+      directLiveReady.hasApi && directLiveReady.started);
 
     const winInfo = await app.evaluate(async ({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows()[0];
       const b = w.getBounds();
-      return { has: !!w, visible: w.isVisible(), bounds: b, alwaysOnTop: w.isAlwaysOnTop(), title: w.getTitle(), contentProtection: true };
+      return { has: !!w, visible: w.isVisible(), bounds: b, alwaysOnTop: w.isAlwaysOnTop(), title: w.getTitle() };
     });
+    metrics.window = { visible: winInfo.visible, alwaysOnTop: winInfo.alwaysOnTop, initialBounds: winInfo.bounds };
     record('Overlay initialization — window visible with title', 'visible, titled', `visible=${winInfo.visible} title=${winInfo.title}`, winInfo.visible && !!winInfo.title);
     record('Overlay initialization — default size present', '> 0 w/h', `${winInfo.bounds.width}x${winInfo.bounds.height}`, winInfo.bounds.width > 0 && winInfo.bounds.height > 0);
     await page.screenshot({ path: path.join(SHOTS, 'A1-startup.png') }).catch(() => { });
@@ -159,6 +176,8 @@ async function main() {
       return { toggle: globalShortcut.isRegistered('CommandOrControl+Shift+J'), answer: globalShortcut.isRegistered('CommandOrControl+Shift+K') };
     });
     record('Keyboard shortcuts registered with OS', 'both registered', `toggle=${shortcutRes.toggle} answer=${shortcutRes.answer}`, shortcutRes.toggle && shortcutRes.answer);
+    metrics.window.shortcuts = shortcutRes;
+    metrics.window.savedBounds = restored.got || null;
 
     // Minimize / restore
     const minres = await app.evaluate(async ({ BrowserWindow }) => {
@@ -244,20 +263,24 @@ async function main() {
     // ───────── Strategy C: Latency ─────────
     currentSection = 'C. Latency';
     const N = 12;
-    const samples = { ttft: [], total: [] };
+    const samples = { ttft: [], total: [], chunksPerSec: [] };
     for (let i = 0; i < N; i++) {
       const s = await runStream(page, 'ok');
       if (typeof s.ttft_ms === 'number') samples.ttft.push(s.ttft_ms);
       if (typeof s.total_ms === 'number') samples.total.push(s.total_ms);
+      if (typeof s.total_ms === 'number' && s.total_ms > 0) samples.chunksPerSec.push(+(s.chunks.length / (s.total_ms / 1000)).toFixed(1));
       await sleep(30);
     }
-    const stat = (arr) => {
-      if (!arr.length) return { median: null, p95: null, max: null, n: 0 };
-      const s = [...arr].sort((a, b) => a - b);
-      const q = (p) => s[Math.min(s.length - 1, Math.floor(p * (s.length - 1)))];
-      return { median: q(0.5), p95: q(0.95), max: s[s.length - 1], n: s.length };
-    };
     const ttft = stat(samples.ttft), total = stat(samples.total);
+    metrics.latency = { backend: 'local mock', runs: N, ttftMs: ttft, totalMs: total, chunksPerSecond: stat(samples.chunksPerSec) };
+
+    // Process footprint after the latency runs, from Electron's own per-process metrics.
+    metrics.process = await app.evaluate(async ({ app: a }) => {
+      const m = a.getAppMetrics();
+      const kb = m.reduce((acc, p) => acc + ((p.memory && p.memory.workingSetSize) || 0), 0);
+      const cpu = m.reduce((acc, p) => acc + ((p.cpu && p.cpu.percentCPUUsage) || 0), 0);
+      return { processCount: m.length, workingSetMb: Math.round(kb / 1024), cpuPercent: +cpu.toFixed(1) };
+    }).catch(() => null);
     record(`TTFT latency over ${N} runs (app-measured ttft_ms)`, 'median reported', `median ${ttft.median}ms p95 ${ttft.p95}ms max ${ttft.max}ms (n=${ttft.n})`, ttft.n > 0);
     record(`Total answer latency over ${N} runs (app-measured total_ms)`, 'median reported', `median ${total.median}ms p95 ${total.p95}ms max ${total.max}ms (n=${total.n})`, total.n > 0);
 
@@ -278,16 +301,20 @@ async function main() {
     const p2 = await app2.firstWindow().catch(() => null);
     if (p2) await p2.screenshot({ path: path.join(SHOTS, 'A5-restart.png') }).catch(() => { });
     await app2.close();
-
-    writeReport();
+  } catch (e) {
+    currentSection = 'harness';
+    record('Harness completed without error', 'no exception', String((e && e.message) || e), false, String((e && e.stack) || e));
   } finally {
     try { await app.close(); } catch { }
     try { mock.kill('SIGTERM'); } catch { }
     try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
   }
+  const summary = writeReport(OUT, SHOTS, results);
+  return { ...summary, results, metrics, outDir: OUT };
 }
 
-function writeReport() {
+function writeReport(OUT, SHOTS, results) {
+  fs.mkdirSync(OUT, { recursive: true });
   const pass = results.filter(r => r.status === 'PASS').length;
   const fail = results.length - pass;
   fs.writeFileSync(path.join(OUT, 'results.json'), JSON.stringify({ when: new Date().toISOString(), pass, fail, results }, null, 2));
@@ -315,6 +342,13 @@ ${rows}
   fs.writeFileSync(path.join(OUT, 'report.html'), doc);
   console.log(`\n${pass}/${results.length} passed${fail ? `, ${fail} FAILED` : ''}`);
   console.log('Report:', path.join(OUT, 'report.html'));
+  return { pass, fail };
 }
 
-main().catch((e) => { console.error('HARNESS ERROR:', e); writeReport(); process.exit(2); });
+module.exports = { runHarness, findAppDir };
+
+if (require.main === module) {
+  runHarness()
+    .then((r) => process.exit(r.fail ? 1 : 0))
+    .catch((e) => { console.error('HARNESS ERROR:', (e && e.message) || e); process.exit(2); });
+}

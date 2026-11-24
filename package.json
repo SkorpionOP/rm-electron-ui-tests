@@ -5,6 +5,7 @@
   "description": "Local, Zoom-free UI + pipeline + latency harness for the RM Electron app",
   "scripts": {
     "test": "node run.cjs",
+    "test:zoom": "node zoom_screenshare_verification.cjs",
     "pipeline": "node pipeline-runner.cjs",
     "pipeline:daily": "node pipeline-runner.cjs --daily",
     "pipeline:daily-now": "node pipeline-runner.cjs --daily --run-now",

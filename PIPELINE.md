@@ -10,12 +10,14 @@ It runs automatically on a scheduled job, sends updates in structured JSON forma
 
 1. **Target App Auto-Opening**: Automatically launches/opens each target app mentioned (Zoom, Teams, Chrome, Slack, etc.) before running the check.
 2. **Direct-to-Live-Session Mode**: On launch, the RM app bypasses the home screen and directly transitions into an active **Live Session** (`RM_DIRECT_LIVE_SESSION=1`).
-3. **Live Session Verification Suite**:
-   - Checks overlay window positioning & `alwaysOnTop` directly over the opened target app window.
-   - Tests live audio capture loopback & Deepgram STT stream readiness.
-   - Checks global shortcuts (toggle/answer) during the live session.
-   - Validates live question detection and streaming answer token rendering in the overlay DOM.
-   - Verifies bounds persistence and graceful live session exit.
+3. **Verification Suite (real measurements only)**: for each target app, the pipeline runs the full
+   `run.cjs` harness (strategies A/B/C) while that app is running, and reports its results verbatim:
+   - Overlay UI: startup, visibility, always-on-top, positioning/resize, saved-bounds persistence,
+     global shortcuts, minimize/restore, hide/show, cleanup, restart recovery.
+   - Answer pipeline against a local mock backend: streaming, long answers, failures, recovery.
+   - Latency (TTFT / total / chunks per second) and Electron process memory & CPU.
+   - Audio loopback and Deepgram transcription are **not** measured by the pipeline; those fields are
+     absent rather than filled with placeholder values.
 4. **Flexible Scheduling**:
    - Runs directly on a daily schedule (e.g. 09:00 AM) or interval.
    - Native Windows Task Scheduler integration via `setup-schedule.ps1`.
@@ -190,8 +192,9 @@ When a job completes, it sends an HTTP POST to `${BACKEND_URL}/api/test-results`
       "status": "PASS",
       "passed": 5,
       "failed": 0,
-      "ttftMedian": 38,
-      "totalLatencyMedian": 840,
+      "ttftMedian": 45,
+      "totalLatencyMedian": 401,
+      "stats": { "latency": { "backend": "local mock", "runs": 12, "ttftMs": { "median": 45, "p95": 46 } }, "process": { "workingSetMb": 363 } },
       "tests": [
         {
           "name": "Overlay compatibility alongside Zoom Workplace",
