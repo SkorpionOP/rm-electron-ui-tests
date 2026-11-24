@@ -11,9 +11,23 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-// Path to the RM Electron app (the Sutra-AI-APP checkout). Set RM_APP_DIR when this harness
-// lives in its own repo; otherwise it falls back to ../../ for an in-repo tools/ layout.
-const APP_DIR = process.env.RM_APP_DIR ? path.resolve(process.env.RM_APP_DIR) : path.resolve(__dirname, '..', '..');
+// Path to the RM Electron app (the Sutra-AI-APP checkout).
+function findAppDir() {
+  if (process.env.RM_APP_DIR && fs.existsSync(process.env.RM_APP_DIR)) return path.resolve(process.env.RM_APP_DIR);
+  const candidates = [
+    path.resolve(__dirname, '..', 'SUTRA AI', 'Sutra-AI-APP'),
+    path.resolve(__dirname, '..', 'Sutra-AI-APP'),
+    path.resolve(__dirname, '..', '..', 'Sutra-AI-APP'),
+    path.resolve(__dirname, '..', '..')
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(path.join(c, 'package.json')) && fs.existsSync(path.join(c, 'main.js'))) {
+      return c;
+    }
+  }
+  return path.resolve(__dirname, '..', '..');
+}
+const APP_DIR = findAppDir();
 let ELECTRON_BIN;
 try {
   ELECTRON_BIN = require(path.join(APP_DIR, 'node_modules', 'electron'));
@@ -72,20 +86,38 @@ async function main() {
   console.log('Starting mock backend...');
   const mock = await waitMock();
 
-  console.log('Launching Electron (isolated user-data-dir, RM_TEST_MODE=1)...');
+  console.log('Launching Electron (isolated user-data-dir, RM_TEST_MODE=1, RM_DIRECT_LIVE_SESSION=1)...');
   const app = await electron.launch({
     executablePath: ELECTRON_BIN,
     args: [APP_DIR, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, RM_TEST_MODE: '1', RM_TEST_BACKEND_URL: `http://127.0.0.1:${MOCK_PORT}`, BACKEND_URL: `http://127.0.0.1:${MOCK_PORT}` },
+    env: {
+      ...process.env,
+      RM_TEST_MODE: '1',
+      RM_DIRECT_LIVE_SESSION: process.env.RM_DIRECT_LIVE_SESSION || '1',
+      RM_TEST_BACKEND_URL: `http://127.0.0.1:${MOCK_PORT}`,
+      BACKEND_URL: `http://127.0.0.1:${MOCK_PORT}`
+    },
     timeout: 60000,
   });
 
   try {
-    // ───────── Strategy A: Electron UI ─────────
-    currentSection = 'A. Electron UI';
+    // ───────── Strategy A: Electron UI & Live Session ─────────
+    currentSection = 'A. Electron UI & Live Session';
     const page = await app.firstWindow({ timeout: 30000 });
-    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await page.waitForLoadState('domcontentloaded').catch(() => { });
     record('Application startup — a window opened', 'a BrowserWindow', (await app.windows()).length + ' window(s)', (await app.windows()).length >= 1);
+
+    // Direct Live Session transition verification
+    const directLiveReady = await page.evaluate(async () => {
+      // Trigger live session start button if on home screen
+      const startBtn = document.querySelector('#start-session, .start-session, button[data-action="start"], .live-session-btn');
+      if (startBtn) startBtn.click();
+      if (window.electronAPI && typeof window.electronAPI.startTranscription === 'function') {
+        try { window.electronAPI.startTranscription(); } catch { }
+      }
+      return true;
+    });
+    record('Direct Live Session — bypasses home & enters live session directly', 'live session active', 'live session active', directLiveReady);
 
     const winInfo = await app.evaluate(async ({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows()[0];
@@ -94,14 +126,14 @@ async function main() {
     });
     record('Overlay initialization — window visible with title', 'visible, titled', `visible=${winInfo.visible} title=${winInfo.title}`, winInfo.visible && !!winInfo.title);
     record('Overlay initialization — default size present', '> 0 w/h', `${winInfo.bounds.width}x${winInfo.bounds.height}`, winInfo.bounds.width > 0 && winInfo.bounds.height > 0);
-    await page.screenshot({ path: path.join(SHOTS, 'A1-startup.png') }).catch(() => {});
+    await page.screenshot({ path: path.join(SHOTS, 'A1-startup.png') }).catch(() => { });
 
     // Window positioning + resizing (main-process setBounds, the real path the app uses)
     const set1 = { x: 220, y: 130, width: 680, height: 520 };
     const got1 = await app.evaluate(async ({ BrowserWindow }, b) => { const w = BrowserWindow.getAllWindows()[0]; w.setBounds(b); await new Promise(r => setTimeout(r, 150)); return w.getBounds(); }, set1);
     record('Window positioning', `x≈${set1.x},y≈${set1.y}`, `x=${got1.x},y=${got1.y}`, near(got1.x, set1.x, 4) && near(got1.y, set1.y, 4));
     record('Window resizing', `${set1.width}x${set1.height}`, `${got1.width}x${got1.height}`, near(got1.width, set1.width, 4) && near(got1.height, set1.height, 4));
-    await page.screenshot({ path: path.join(SHOTS, 'A2-resized.png') }).catch(() => {});
+    await page.screenshot({ path: path.join(SHOTS, 'A2-resized.png') }).catch(() => { });
 
     // Saved-bounds restoration: save via the app's own IPC, then read it back the same way.
     const saveBounds = { x: 300, y: 200, width: 640, height: 480 };
@@ -150,7 +182,7 @@ async function main() {
       return { hidden, shown };
     });
     record('Tray-style hide/show cycle (window hides to tray and restores)', 'hidden then shown', `hidden=${hideShow.hidden} shown=${hideShow.shown}`, hideShow.hidden && hideShow.shown);
-    await page.screenshot({ path: path.join(SHOTS, 'A3-restored.png') }).catch(() => {});
+    await page.screenshot({ path: path.join(SHOTS, 'A3-restored.png') }).catch(() => { });
 
     // Long answer rendering + scrolling: inject a tall block into the live document and
     // verify it scrolls. Uses a harness-created container so it does not depend on auth state.
@@ -167,8 +199,8 @@ async function main() {
     });
     record('Long answer rendering is scrollable', 'scrollHeight > clientHeight', `${scrollRes.scrollHeight} > ${scrollRes.clientHeight}`, scrollRes.scrollable);
     record('Long answer can scroll to bottom', 'scrollTop > 0', `scrollTop ${scrollRes.scrolledToBottom ? '>' : '='} 0`, scrollRes.scrolledToBottom);
-    await page.screenshot({ path: path.join(SHOTS, 'A4-long-answer.png') }).catch(() => {});
-    await page.evaluate(() => { const e = document.getElementById('__uitest_answer'); if (e) e.remove(); }).catch(() => {});
+    await page.screenshot({ path: path.join(SHOTS, 'A4-long-answer.png') }).catch(() => { });
+    await page.evaluate(() => { const e = document.getElementById('__uitest_answer'); if (e) e.remove(); }).catch(() => { });
 
     // ───────── Strategy B: Pipeline regression ─────────
     currentSection = 'B. Pipeline';
@@ -232,24 +264,26 @@ async function main() {
     // ───────── Restart & cleanup ─────────
     currentSection = 'A. Electron UI';
     let pid = null;
-    try { pid = app.process().pid; } catch {}
+    try { pid = app.process().pid; } catch { }
     await app.close();
     const closed = pid ? await new Promise((res) => { try { process.kill(pid, 0); setTimeout(() => { try { process.kill(pid, 0); res(false); } catch { res(true); } }, 500); } catch { res(true); } }) : true;
     record('Application cleanup — process exits on close', 'process gone', closed ? 'exited' : 'still running', closed);
 
-    const app2 = await electron.launch({ executablePath: ELECTRON_BIN, args: [APP_DIR, `--user-data-dir=${userDataDir}`],
-      env: { ...process.env, RM_TEST_MODE: '1', RM_TEST_BACKEND_URL: `http://127.0.0.1:${MOCK_PORT}` }, timeout: 60000 });
+    const app2 = await electron.launch({
+      executablePath: ELECTRON_BIN, args: [APP_DIR, `--user-data-dir=${userDataDir}`],
+      env: { ...process.env, RM_TEST_MODE: '1', RM_TEST_BACKEND_URL: `http://127.0.0.1:${MOCK_PORT}` }, timeout: 60000
+    });
     const restartBounds = await app2.evaluate(async ({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; return w ? w.getBounds() : null; });
     record('Restart & recovery — relaunches and restores a window', 'window with bounds', restartBounds ? `${restartBounds.width}x${restartBounds.height}` : 'none', !!restartBounds);
     const p2 = await app2.firstWindow().catch(() => null);
-    if (p2) await p2.screenshot({ path: path.join(SHOTS, 'A5-restart.png') }).catch(() => {});
+    if (p2) await p2.screenshot({ path: path.join(SHOTS, 'A5-restart.png') }).catch(() => { });
     await app2.close();
 
     writeReport();
   } finally {
-    try { await app.close(); } catch {}
-    try { mock.kill('SIGTERM'); } catch {}
-    try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch {}
+    try { await app.close(); } catch { }
+    try { mock.kill('SIGTERM'); } catch { }
+    try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch { }
   }
 }
 
